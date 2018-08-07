@@ -1,0 +1,113 @@
+import torch
+import torch.nn as nn
+import numpy as np
+from torch.autograd import Variable
+import matplotlib.pyplot as plt 
+import torchvision                                   #数据库模块（图片数据）
+import torch.utils.data as Data
+
+
+torch.manual_seed(1)                                  #reproducible
+
+
+#Hyper parameters 
+EPOCH = 1                                            #training time
+BATCH_SIZE = 64                                      #batch size
+TIME_STEP = 28                                       #rnn time size/image's height
+INPUT_SIZE = 28                                      #rnn input size/image's width
+LR = 0.01                                            #learning rate
+DOWNLOAD_MNIST = True                                #download or not ?
+
+
+#Mnist 手写数字
+
+#training data
+train_data = torchvision.datasets.MNIST(              #training data
+    root = "./mnist/", 
+    train = True,
+    transform = torchvision.transforms.ToTensor(),      #from(0,255)->(0,1)
+    download = DOWNLOAD_MNIST
+)
+
+
+
+#plot some examples(photos and labels)
+print(train_data.train_data.size())                   #output dataset's size
+print(train_data.train_labels.size())                 #output dataset's labels
+for i in range(3):
+    plt.figure()
+    plt.imshow(train_data.train_data[i].numpy(), cmap = "gray")  #plot photos
+    plt.title("%i" % train_data.train_labels[i])                 #plot labels
+    plt.show()
+
+    
+
+#testing data
+test_data =torchvision.datasets.MNIST(root='./mnist/', train=False, transform=torchvision.transforms.ToTensor())
+
+
+#test x,y
+
+test_x = Variable(test_data.test_data,volatile = True).type(torch.FloatTensor)[:2000]/255
+test_y = test_data.test_labels.numpy().squeeze()[:2000]
+
+
+
+#loader    
+loader = Data.DataLoader(                             #loader
+    dataset = train_data,                             #dataset
+    batch_size = BATCH_SIZE,                          #batch size
+    shuffle = True,                                  #shuffle or not ?
+    num_workers = 2,                                 #muti-threading
+)
+
+
+
+#RNN
+class RNN(torch.nn.Module):
+    def __init__(self):
+        super(RNN, self).__init__()
+        self.rnn = nn.LSTM(
+            input_size = INPUT_SIZE, 
+            hidden_size = 128, 
+            num_layers = 1,
+            batch_first = True
+        )
+        self.out = torch.nn.Linear(128, 10)
+    def forward(self, x):
+        r_out, (h_n, h_c) = self.rnn(x, None)
+        out = self.out(r_out[:,-1,:])            #(batch, time_step, input_size)
+        return out
+
+rnn = RNN()
+print(rnn)
+
+
+optimizer = torch.optim.Adam(rnn.parameters(), lr = LR)
+loss_function = torch.nn.CrossEntropyLoss()
+
+
+for epoch in range(EPOCH):
+    for step, (x, y) in enumerate(loader):
+        b_x = Variable(x.view(-1, 28, 28))
+        b_y = Variable(y)
+        output = rnn(b_x)
+        loss = loss_function(output, b_y)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        
+        if step % 50 == 0:
+            test_output = rnn(test_x)                   # (samples, time_step, input_size)
+            pred_y = torch.max(test_output, 1)[1].data.numpy().squeeze()
+            accuracy = float((pred_y == test_y).astype(int).sum()) / float(test_y.size)
+            print('Epoch: ', epoch,'|step:',step, '| train loss: %.4f' % loss.data.numpy(), '| test accuracy: %.2f' % accuracy)
+
+print("training over")
+print("testing......")
+print("testing results:")
+# print 10 predictions from test data
+test_output = rnn(test_x[:50].view(-1, 28, 28))
+pred_y = torch.max(test_output, 1)[1].data.numpy().squeeze()
+print(pred_y, 'prediction number')
+print(test_y[:50], 'real number')
